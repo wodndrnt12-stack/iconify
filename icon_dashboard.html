@@ -560,52 +560,82 @@
     return /[가-힣]/.test(str);
   }
 
+  function scoreIcon(icon, keywords) {
+    let score = 0;
+    for (let i = 0; i < keywords.length; i++) {
+      const kw = keywords[i].toLowerCase();
+      const w = 1 / (i + 1);
+      const n = icon.name.toLowerCase();
+      const id = icon.icon_id.toLowerCase();
+      const c = icon.collection.toLowerCase();
+
+      if (n === kw || id === kw)         score += 5 * w;
+      else if (n.startsWith(kw))         score += 3 * w;
+      else if (n.includes(kw))           score += 1 * w;
+      else if (c.includes(kw))           score += 0.3 * w;
+      else return null; // AND 조건: 하나라도 실패 → 제외
+    }
+    return score;
+  }
+
   function toEnglishKeywords(query) {
     if (koDict[query]) return koDict[query];
-    if (query.length < 2) return [];
-    let bestMatch = null;
-    let bestLen = 0;
+    // 단일 영문자는 무의미, 단일 한국어는 허용
+    if (query.length < 2 && !/[가-힣]/.test(query)) return [];
+
+    // 부분 포함 매칭 여러 개 합산
+    const results = [];
     for (const [ko, en] of Object.entries(koDict)) {
-      if (ko.length < 2) continue;
-      if ((query.includes(ko) || ko.includes(query)) && ko.length > bestLen) {
-        bestLen = ko.length;
-        bestMatch = en;
+      if (query.includes(ko) || ko.includes(query)) {
+        results.push(...en);
       }
     }
-    return bestMatch || [];
+    return [...new Set(results)];
   }
 
   function getResults(query, collection) {
-    const q = query.toLowerCase().trim();
+    const q = query.trim();
     if (!q) return db.filter(icon => !collection || icon.collection === collection);
 
+    const pool = collection ? db.filter(i => i.collection === collection) : db;
     const ko = isKorean(q);
-    if (ko) {
-      const keywords = toEnglishKeywords(q);
-      if (keywords.length === 0) return [];
 
-      return db
-        .filter(icon => !collection || icon.collection === collection)
-        .map(icon => {
-          let score = 0;
-          for (let i = 0; i < keywords.length; i++) {
-            const kw = keywords[i];
-            const w = 1 / (i + 1);
-            if (icon.name === kw)               score += 3 * w;
-            else if (icon.name.startsWith(kw))  score += 2 * w;
-            else if (icon.name.includes(kw))    score += 1 * w;
-          }
-          return { icon, score };
-        })
-        .filter(({ score }) => score > 0)
+    if (ko) {
+      const tokens = q.toLowerCase().split(/\s+/).filter(Boolean);
+
+      if (tokens.length > 1) {
+        // 다중 한국어 토큰: 토큰 내 OR, 토큰 간 AND
+        const tokenKws = tokens.map(t => toEnglishKeywords(t)).filter(s => s.length > 0);
+        if (tokenKws.length === 0) return [];
+
+        return pool.filter(icon => {
+          const n = icon.name.toLowerCase();
+          const id = icon.icon_id.toLowerCase();
+          const c = icon.collection.toLowerCase();
+          return tokenKws.every(kws =>
+            kws.some(kw => {
+              const k = kw.toLowerCase();
+              return n === k || n.startsWith(k) || n.includes(k) || id.includes(k) || c.includes(k);
+            })
+          );
+        });
+      }
+
+      const keywords = toEnglishKeywords(tokens[0]);
+      if (keywords.length === 0) return [];
+      return pool
+        .map(icon => ({ icon, score: scoreIcon(icon, keywords) }))
+        .filter(({ score }) => score !== null && score > 0)
         .sort((a, b) => b.score - a.score)
         .map(({ icon }) => icon);
     }
 
-    return db.filter(icon =>
-      (icon.name.includes(q) || icon.collection.includes(q)) &&
-      (!collection || icon.collection === collection)
-    );
+    const keywords = q.toLowerCase().split(/\s+/).filter(Boolean);
+    return pool
+      .map(icon => ({ icon, score: scoreIcon(icon, keywords) }))
+      .filter(({ score }) => score !== null && score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map(({ icon }) => icon);
   }
 
   function renderSearch() {
