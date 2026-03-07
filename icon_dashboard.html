@@ -287,6 +287,82 @@
     font-size: 13px;
     display: none;
   }
+
+  #preview-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 200;
+  }
+  #preview-backdrop.open { display: block; }
+
+  #preview-panel {
+    position: fixed;
+    top: 0;
+    right: -340px;
+    width: 300px;
+    height: 100vh;
+    background: #16213e;
+    border-left: 2px solid #0f3460;
+    z-index: 201;
+    transition: right 0.25s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+    gap: 14px;
+  }
+  #preview-panel.open { right: 0; }
+
+  #preview-close {
+    align-self: flex-end;
+    background: none;
+    border: none;
+    color: #aaa;
+    font-size: 22px;
+    cursor: pointer;
+    line-height: 1;
+  }
+  #preview-close:hover { color: #e94560; }
+
+  #preview-img {
+    width: 160px;
+    height: 160px;
+    filter: invert(1);
+    object-fit: contain;
+    margin-top: 20px;
+  }
+
+  #preview-id {
+    font-size: 13px;
+    color: #e0e0e0;
+    text-align: center;
+    word-break: break-all;
+    line-height: 1.5;
+  }
+
+  #preview-col {
+    font-size: 12px;
+    color: #aaa;
+    background: #0f3460;
+    padding: 3px 10px;
+    border-radius: 10px;
+  }
+
+  #preview-copy-btn {
+    margin-top: 8px;
+    padding: 9px 28px;
+    background: #e94560;
+    border: none;
+    border-radius: 6px;
+    color: white;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  #preview-copy-btn:hover { opacity: 0.85; }
 </style>
 </head>
 <body>
@@ -318,6 +394,15 @@
 
 <div id="toast"></div>
 
+<div id="preview-backdrop"></div>
+<div id="preview-panel">
+  <button id="preview-close">✕</button>
+  <img id="preview-img" src="" alt="">
+  <div id="preview-id"></div>
+  <div id="preview-col"></div>
+  <button id="preview-copy-btn">복사하기</button>
+</div>
+
 <script>
 (async function() {
   const loadingScreen = document.getElementById('loading-screen');
@@ -333,6 +418,12 @@
   const noResults = document.getElementById('no-results');
   const limitNotice = document.getElementById('limit-notice');
   const toast = document.getElementById('toast');
+  const previewBackdrop = document.getElementById('preview-backdrop');
+  const previewPanel = document.getElementById('preview-panel');
+  const previewImg = document.getElementById('preview-img');
+  const previewId = document.getElementById('preview-id');
+  const previewCol = document.getElementById('preview-col');
+  const previewCopyBtn = document.getElementById('preview-copy-btn');
 
   let db = [];
   let koDict = {};
@@ -538,6 +629,30 @@
 
   // ━━━ 2. UI 초기화 ━━━
   function initUI() {
+    const iconById = new Map(db.map(i => [i.icon_id, i]));
+
+    function openPreview(iconId) {
+      const icon = iconById.get(iconId);
+      if (!icon) return;
+      previewImg.src = icon.svg_url;
+      previewId.textContent = icon.icon_id;
+      previewCol.textContent = icon.collection;
+      previewCopyBtn.onclick = () => copyIcon(iconId);
+      previewPanel.classList.add('open');
+      previewBackdrop.classList.add('open');
+    }
+
+    function closePreview() {
+      previewPanel.classList.remove('open');
+      previewBackdrop.classList.remove('open');
+    }
+
+    document.getElementById('preview-close').addEventListener('click', closePreview);
+    previewBackdrop.addEventListener('click', closePreview);
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closePreview(); });
+
+    window.openPreview = openPreview;
+
     // 컬렉션 목록 추출
     const collections = [...new Set(db.map(i => i.collection))].sort();
     collections.forEach(col => {
@@ -669,12 +784,12 @@
       iconGrid.innerHTML = icons.map(icon => {
         const safeId = icon.icon_id.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
         const isFav = favorites.has(icon.icon_id);
-        return `<div class="icon-card" onclick="copyIcon('${safeId}')">
+        return `<div class="icon-card" onclick="openPreview('${safeId}')">
           <button class="star-btn${isFav ? ' active' : ''}" data-id="${safeId}"
             onclick="event.stopPropagation(); toggleFavorite('${safeId}')">★</button>
           <img src="${icon.svg_url}" loading="lazy" alt="${icon.name}" onerror="this.style.opacity='0.2'">
           <span class="icon-name">${icon.icon_id}</span>
-          <span class="copy-hint">클릭하여 복사</span>
+          <span class="copy-hint">클릭하여 미리보기</span>
         </div>`;
       }).join('');
     }
